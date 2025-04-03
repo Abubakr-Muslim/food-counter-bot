@@ -5,13 +5,15 @@ namespace App\Http\Controllers;
 use Telegram\Bot\Laravel\Facades\Telegram;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
-use Illuminate\Support\Facades\Storage;
 
-class TelegramWebhookController extends Controller
+class TelegramDownloadPhotoController extends Controller
 {
     public function handle(Request $request)
     {
-        Log::info('Telegram Webhook Received: ', $request->all());
+        $updates = Telegram::getWebhookUpdates();
+
+        Log::info(json_encode($updates->getMessage()));
+        
         
         if($request->has('message') && is_array($request->input('message')) 
         && array_key_exists('text', $request->input('message'))) {
@@ -49,7 +51,6 @@ class TelegramWebhookController extends Controller
                 if ($fileContent === false) {
                     Log::error('Ошибка при скачивании файла по URL:', ['url' => $downloadUrl]);
                 } else {
-                    // Сохраняем файл
                     if (file_put_contents($destinationPath, $fileContent)) {
                         Log::info('Фотография успешно сохранена (ручной URL) в: ', ['path' => $destinationPath]);
                     } else {
