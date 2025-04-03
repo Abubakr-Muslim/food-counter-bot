@@ -12,15 +12,22 @@ class StartCommand extends Command
 
     public function handle()
     {
-        $keyboard = Keyboard::make()
-            ->inline()
+        $welcomeMessage = 'Привет! Я бот, который поможет тебе анализировать прием пищи и считать калории. Просто отправь мне фотографию блюда, и я проанализирую его количество каллорий и бжу' . PHP_EOL . PHP_EOL . 'Пожалуйста, прежде чем начать работу, ответьте на несколько вопросов для настройки вашего профиля.';
+        $welcomeMessage .= PHP_EOL . PHP_EOL . 'Используй команду /help, чтобы увидеть список доступных команд.';
+        $this->replyWithMessage(['text' => $welcomeMessage]);
+
+        $goalKeyboard = Keyboard::make()
+		    ->setResizeKeyboard(true)
+            ->setOneTimeKeyboard(true)
             ->row([
-                Keyboard::inlineButton(['text' => 'Узнать больше о боте', 'callback_data' => 'about']),
+                Keyboard::button('Сбросить вес'),
+                Keyboard::button('Удержать вес'),
+                Keyboard::button('Нарастить мышцы'),
             ]);
 
-        $response = 'Привет! Я бот, который поможет тебе анализировать еду и считать калории. Просто отправь мне фотографию блюда, и я проанализирую его количество каллорий и бжу';
-        $response .= PHP_EOL . PHP_EOL . 'Используй команду /help, чтобы увидеть список доступных команд.';
-
-        $this->replyWithMessage(['text' => $response, 'reply_markup' => $keyboard]);
+        $this->replyWithMessage([
+            'text' => 'Выберите свою цель для ведения подчета калорий',
+            'reply_markup' => $goalKeyboard
+        ]);
     }
 }
