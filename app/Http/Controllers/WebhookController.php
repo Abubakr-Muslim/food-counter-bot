@@ -24,6 +24,7 @@ class WebHookController extends Controller
         $updates = Telegram::getWebhookUpdates();
 
         Log::info("Состояние сессии в начале обработки:", session()->all());
+        Log::info(session()->all());
 
         if ($updates->has('message')) {
             $message = $updates->getMessage();
