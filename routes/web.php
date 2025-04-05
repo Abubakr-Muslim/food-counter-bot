@@ -1,7 +1,6 @@
 <?php
 
 use Illuminate\Support\Facades\Route;
-use App\Http\Controllers\TelegramWebhookController;
 use App\Http\Controllers\WebHookController;
 use Illuminate\Foundation\Http\Middleware\VerifyCsrfToken;
 

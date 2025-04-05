@@ -23,12 +23,12 @@ return new class extends Migration
         Schema::create('customer_info', function (Blueprint $table) {
             $table->id();
             $table->foreignId('customer_id')->constrained()->onDelete('cascade');
-            $table->string('goal');
-            $table->string('gender');
-            $table->date('birthdate');
-            $table->string('activity_level');
-            $table->integer('height');
-            $table->decimal('weight');
+            $table->string('goal')->nullable();
+            $table->string('gender')->nullable();
+            $table->date('birthdate')->nullable();
+            $table->string('activity_level')->nullable();
+            $table->integer('height')->nullable();
+            $table->decimal('weight')->nullable();
             $table->timestamp('created_at'); 
             $table->timestamp('updated_at'); 
             $table->timestamp('archive_at')->nullable();
@@ -40,7 +40,7 @@ return new class extends Migration
      */
     public function down(): void
     {
-        Schema::dropIfExists('customers');
         Schema::dropIfExists('customer_info');
+        Schema::dropIfExists('customers');
     }
 };

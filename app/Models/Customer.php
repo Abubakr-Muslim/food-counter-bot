@@ -13,11 +13,12 @@ class Customer extends Model
         'tg_id',
         'first_name',
         'last_name',
-        'login'
+        'login',
+        'state'
     ];
 
     public function customerInfo()
     {
-        return $this->hasMany(CustomerInfo::class);
+        return $this->hasMany(customerInfo::class);
     }
 }
