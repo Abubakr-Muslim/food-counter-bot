@@ -121,7 +121,7 @@ class WebHookController extends Controller
                         Telegram::sendMessage([
                             'chat_id' => $chatId,
                             'text' => 'Пожалуйста, введите свой рост:',
-                            'reply_markup' => ['remove_keyboard', true]
+                            'reply_markup' => ['remove_keyboard' => true]
                         ]);
                     } elseif ($messageText !== '/start') {
                         Telegram::sendMessage([
@@ -141,7 +141,7 @@ class WebHookController extends Controller
                         Telegram::sendMessage([
                             'chat_id' => $chatId,
                             'text' => 'Пожалуйста, введите свой вес:',
-                            'reply_markup' => ['remove_keyboard', true],
+                            'reply_markup' => ['remove_keyboard' => true],
                         ]);
                     } else if ($messageText !== '/start') {
                         Telegram::sendMessage([
