@@ -43,8 +43,8 @@ return [
                 App\Commands\StartCommand::class,
                 App\Commands\HelpCommand::class, 
                 App\Commands\AboutCommand::class,
-                App\Commands\InlineKeyboardCommand::class,
-                App\Commands\ReplyKeyboardCommand::class
+                App\Commands\MyNormCommand::class,
+                App\Commands\MyProfileCommand::class
             ],
         ],
 

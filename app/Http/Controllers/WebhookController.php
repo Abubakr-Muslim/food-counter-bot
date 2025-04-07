@@ -12,14 +12,18 @@ use Telegram\Bot\Laravel\Facades\Telegram;
 use Exception;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Carbon\Carbon;
+use App\Services\CalorieCalculatorService; 
+
 
 class WebHookController extends Controller
 {
     protected BotsManager $botsManager;
+    protected CalorieCalculatorService $calculatorService;
 
-    public function __construct(BotsManager $botsManager)
+    public function __construct(BotsManager $botsManager, CalorieCalculatorService $calculatorService)
     {
         $this->botsManager = $botsManager;
+        $this->calculatorService = $calculatorService;
     }
 
     public function __invoke(Request $request)
@@ -145,7 +149,9 @@ class WebHookController extends Controller
                         $customer->update(['state' => null]); 
                         Log::info("Onboarding completed for customer {$customer->id}. Session state cleared.");
                         $this->sendFinalSummary($chatId, $customer);
-                    }
+                        Log::info("Webhook: Attempting to call sendCalorieNorm for customer {$customer->id}");
+                        $this->sendCalorieNorm($chatId, $customer);
+                        Log::info("Webhook: Finished calling sendCalorieNorm for customer {$customer->id}");                  }
                 } else {
                     $this->sendMessage($chatId, 'Пожалуйста, введите ваш вес в килограммах (число от 20 до 500, можно с точкой или запятой).');
                 }
@@ -190,8 +196,8 @@ class WebHookController extends Controller
              return false;
          }
     }
-     protected function sendMessage(int $chatId, string $text, $replyMarkup = null, string $parseMode = null): void
-     {
+    protected function sendMessage(int $chatId, string $text, $replyMarkup = null, $parseMode = null): void
+    {
         try {
             $params = ['chat_id' => $chatId, 'text' => $text];
             if ($replyMarkup !== null) {
@@ -204,25 +210,25 @@ class WebHookController extends Controller
         } catch (TelegramSDKException $e) {
             Log::error("Failed to send message to chat {$chatId}", ['error' => $e->getMessage()]);
         }
-     }
-     protected function askGender(int $chatId): void
-     {
+    }
+    protected function askGender(int $chatId): void
+    {
          $keyboard = Keyboard::make()
             ->setResizeKeyboard(true)
             ->setOneTimeKeyboard(true)
             ->row(['Мужской', 'Женский']);
          $this->sendMessage($chatId, 'Отлично! Теперь выберите свой пол:', $keyboard);
-     }
-     protected function askBirthdate(int $chatId): void
-     {
+    }
+    protected function askBirthdate(int $chatId): void
+    {
         $keyboard = Keyboard::make()
             ->setResizeKeyboard(true)
             ->setOneTimeKeyboard(true);
             
         $this->sendMessage($chatId, 'Пожалуйста, введите свою дату рождения в формате ГГГГ-ММ-ДД (например, 1999-01-15):', $keyboard);
     }
-     protected function askActivityLevel(int $chatId): void
-     {
+    protected function askActivityLevel(int $chatId): void
+    {
         $keyboard = Keyboard::make()
             ->setResizeKeyboard(true)
             ->setOneTimeKeyboard(true)
@@ -230,23 +236,51 @@ class WebHookController extends Controller
             ->row(['Минимум активности', 'Сидячий образ жизни']);
 
         $this->sendMessage($chatId, 'Выберите ваш обычный уровень активности:', $keyboard);
-     }
-      protected function askHeight(int $chatId): void
-     {
+    }
+    protected function askHeight(int $chatId): void
+    {
         $keyboard = Keyboard::make()
             ->setResizeKeyboard(true)
             ->setOneTimeKeyboard(true);
 
         $this->sendMessage($chatId, 'Введите ваш рост в сантиметрах (например, 175):', $keyboard);
-     }
-      protected function askWeight(int $chatId): void
-     {
+    }
+    protected function askWeight(int $chatId): void
+    {
         $keyboard = Keyboard::make()
             ->setResizeKeyboard(true)
             ->setOneTimeKeyboard(true);
 
         $this->sendMessage($chatId, 'Введите ваш текущий вес в килограммах (например, 68.5):', $keyboard);
-     }
+    }
+    protected function sendCalorieNorm(int $chatId, Customer $customer)
+    {
+        $info = $customer->customerInfo()->latest()->first();
+    
+        if (!$info) {
+            Log::error("Cannot calculate norm, CustomerInfo not found for customer {$customer->id}");
+            $this->sendMessage($chatId, 'Не удалось найти данные профиля для расчёта нормы калорий.');
+            return;
+        }
+    
+        Log::info("Webhook: Calculating calorie norm for customer {$customer->id}", $info->toArray());
+    
+        $calorieNorm = $this->calculatorService->calculateNorm($info);
+    
+        if ($calorieNorm !== null) {
+            $message = sprintf(
+                "✅ Исходя из ваших данных и цели '<b>%s</b>', ваша дневная норма калорий составляет: <b>~%d ккал</b>.
+                        \nЧтобы посмотреть свою дневную норму, используйте команду /mynorm в меню",
+                htmlspecialchars($info->goal),
+                $calorieNorm
+            );
+            Log::info("Webhook: Sending calorie norm for customer {$customer->id}: {$calorieNorm} kcal");
+            $this->sendMessage($chatId, $message, null, 'HTML');
+        } else {
+            Log::warning("Webhook: Failed to calculate calorie norm for customer {$customer->id}");
+            $this->sendMessage($chatId, "Не удалось рассчитать вашу норму калорий из-за недостатка данных или ошибки. Попробуйте команду /mynorm позже.");
+        }
+    }
     protected function sendFinalSummary(int $chatId, Customer $customer): void
     {
         $customer->load('customerInfo');
