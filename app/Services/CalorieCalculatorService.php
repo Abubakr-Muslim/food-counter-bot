@@ -20,10 +20,20 @@ class CalorieCalculatorService
         'Удержать вес' => 0,
         'Нарастить мышцы' => 400,
     ];
+    private const KCAL_PER_PROTEIN = 4;
+    private const KCAL_PER_FAT = 9;
+    private const KCAL_PER_CARB = 4;
     private const MIN_CALORIES_MALE = 1400;
     private const MIN_CALORIES_FEMALE = 1200;
+    private const PROTEIN_PER_KG = [
+        'Сбросить вес' => 1.8,
+        'Удержать вес' => 1.4,
+        'Нарастить мышцы' => 1.8,
+    ];
+    private const MIN_FAT_PER_KG = 0.8;
+    private const FAT_PERCENT_DEFAULT = 25;
 
-    public function calculateNorm(CustomerInfo $info): ?int
+    public function calculateNorm(CustomerInfo $info): ?array
     {
         try {
             if (!$this->hasRequiredData($info)) {
@@ -43,10 +53,10 @@ class CalorieCalculatorService
                 return null;
             }
 
-            $activityFactor = self::ACTIVITY_FACTORS[$activityLevel] ?? 1.2;
+            $activityFactor = self::ACTIVITY_FACTORS[$activityLevel] ?? self::ACTIVITY_FACTORS['Сидячий образ жизни'];
             $tdee = $bmr * $activityFactor;
 
-            $goalAdjustment = self::GOAL_ADJUSTMENTS[$goal] ?? 0;
+            $goalAdjustment = self::GOAL_ADJUSTMENTS[$goal] ?? self::GOAL_ADJUSTMENTS['Удержать вес'];
             $calculatedNorm = $tdee + $goalAdjustment;
 
             $minCalories = $gender === 'Мужской' ? self::MIN_CALORIES_MALE : self::MIN_CALORIES_FEMALE;
@@ -55,7 +65,32 @@ class CalorieCalculatorService
                 Log::info("Calorie norm adjusted to minimum ({$minCalories}) for CustomerInfo ID {$info->id}");
             }
 
-            return (int)round($calculatedNorm);
+            $calculatedNorm = (int)round($calculatedNorm);
+
+            $proteinGrams = $weight * self::PROTEIN_PER_KG[$goal];
+            $proteinCalories = $proteinGrams * self::KCAL_PER_PROTEIN;
+
+            $minFatGrams = $weight * self::MIN_FAT_PER_KG;
+            $remainingCalories = $calculatedNorm - $proteinCalories;
+            $fatCalories = max($minFatGrams * self::KCAL_PER_FAT, $remainingCalories * (self::FAT_PERCENT_DEFAULT / 100));
+            $fatGrams = $fatCalories / self::KCAL_PER_FAT;
+
+            $carbCalories = $calculatedNorm - $proteinCalories - $fatCalories;
+            $carbGrams = $carbCalories / self::KCAL_PER_CARB;
+
+            if ($carbGrams < 0) {
+                $fatGrams = $minFatGrams;
+                $fatCalories = $fatGrams * self::KCAL_PER_FAT;
+                $carbCalories = $calculatedNorm - $proteinCalories - $fatCalories;
+                $carbGrams = max(0, $carbCalories / self::KCAL_PER_CARB);
+            }
+
+            return [
+                'calories' => $calculatedNorm,
+                'protein' => (int)round($proteinGrams),
+                'fat' => (int)round($fatGrams),
+                'carbs' => (int)round($carbGrams),
+            ];
         } catch (Exception $e) {
             Log::error("Error calculating calorie norm for CustomerInfo ID {$info->id}", [
                 'error' => $e->getMessage(),

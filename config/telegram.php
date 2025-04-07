@@ -44,7 +44,8 @@ return [
                 App\Commands\HelpCommand::class, 
                 App\Commands\AboutCommand::class,
                 App\Commands\MyNormCommand::class,
-                App\Commands\MyProfileCommand::class
+                App\Commands\MyProfileCommand::class,
+                App\Commands\MenuCommand::class
             ],
         ],
 

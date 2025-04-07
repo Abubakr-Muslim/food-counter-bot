@@ -56,21 +56,26 @@ class MyNormCommand extends Command
 
             Log::info("MyNormCommand: User={$userId}. Profile data found. Calculating norm...");
 
-            $calorieNorm = $this->calculatorService->calculateNorm($info);
+            $result = $this->calculatorService->calculateNorm($info); 
 
-            if ($calorieNorm !== null) {
+            if ($result !== null && isset($result['calories'])) {
                 $responseText = sprintf(
-                    "✅ Ваша текущая цель: *%s*.\n\nДневная норма калорий для вашей актуальной цели установлена: *~%d ккал*.\n\n",
+            "✅ Ваша текущая цель: *%s*.\n\n" .
+                    "Примерная дневная норма: *~%d ккал*\n" .
+                    "БЖУ: *~%dг* белка / *~%dг* жира / *~%dг* углеводов\n\n",
                     htmlspecialchars($info->goal ?? 'Не указана'),
-                    $calorieNorm
+                    $result['calories'],     
+                    $result['protein'] ?? 0, 
+                    $result['fat'] ?? 0,
+                    $result['carbs'] ?? 0
                 );
-                $this->sendMessage($chatId, $responseText, null, 'Markdown');
-            } else {
-                Log::error("MyNormCommand: Calculator service returned null for User={$userId}");
+                $this->sendMessage($chatId, $responseText, null, 'Markdown'); 
+           } else {
+                Log::error("MyNormCommand: Calculator service returned null or invalid array for User={$userId}");
                 $this->replyWithMessage([
-                    'text' => 'К сожалению, не удалось рассчитать вашу норму калорий... Попробуйте /mynorm позже.'
+                    'text' => 'К сожалению, не удалось рассчитать вашу норму калорий и БЖУ... Попробуйте позже.'
                 ]);
-            }
+           }
 
             Log::info("MyNormCommand: Finished for User={$userId}.");
 

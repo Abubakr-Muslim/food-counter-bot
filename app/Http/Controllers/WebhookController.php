@@ -37,6 +37,34 @@ class WebHookController extends Controller
 
         $update = Telegram::getWebhookUpdates();
 
+        if ($update->has('callback_query')) {
+            $callbackQuery = $update->getCallbackQuery();
+            $chatId = $callbackQuery->getMessage()->getChat()->getId();
+            $userId = $callbackQuery->getFrom()->getId();
+            $data = $callbackQuery->getData();
+
+            Log::info("Webhook: Received callback_query from user {$userId}", ['data' => $data]);
+
+            try {
+                $customer = Customer::where('tg_id', $userId)->firstOrFail();
+                $this->handleCallbackQuery($chatId, $customer, $data);
+                // Подтверждаем получение callback_query
+                Telegram::answerCallbackQuery(['callback_query_id' => $callbackQuery->getId()]);
+            } catch (ModelNotFoundException $e) {
+                Log::error("Webhook: Customer not found for tg_id: {$userId}");
+                $this->sendMessage($chatId, 'Ваш профиль не найден. Пожалуйста, нажмите /start для начала.');
+            } catch (Exception $e) {
+                Log::error("Webhook: Error handling callback_query for user {$userId}", [
+                    'error' => $e->getMessage(),
+                    'file' => $e->getFile(),
+                    'line' => $e->getLine(),
+                ]);
+                $this->sendMessage($chatId, 'Произошла ошибка. Попробуйте позже.');
+            }
+
+            return response(null, 200);
+        }
+
         if (!$update->has('message') || !$update->getMessage()->getFrom()) {
             Log::info('Webhook: Update without message or user info.');
             return response(null, 200);
@@ -253,32 +281,64 @@ class WebHookController extends Controller
 
         $this->sendMessage($chatId, 'Введите ваш текущий вес в килограммах (например, 68.5):', $keyboard);
     }
-    protected function sendCalorieNorm(int $chatId, Customer $customer)
+    protected function sendCalorieNorm(int $chatId, Customer $customer): void
     {
+        Log::info("sendCalorieNorm: Method entered for customer {$customer->id}");
         $info = $customer->customerInfo()->latest()->first();
-    
+
         if (!$info) {
-            Log::error("Cannot calculate norm, CustomerInfo not found for customer {$customer->id}");
-            $this->sendMessage($chatId, 'Не удалось найти данные профиля для расчёта нормы калорий.');
+            Log::error("sendCalorieNorm: CustomerInfo not found for customer {$customer->id}!");
             return;
         }
-    
-        Log::info("Webhook: Calculating calorie norm for customer {$customer->id}", $info->toArray());
-    
-        $calorieNorm = $this->calculatorService->calculateNorm($info);
-    
-        if ($calorieNorm !== null) {
-            $message = sprintf(
-                "✅ Исходя из ваших данных и цели '<b>%s</b>', ваша дневная норма калорий составляет: <b>~%d ккал</b>.
-                        \nЧтобы посмотреть свою дневную норму, используйте команду /mynorm в меню",
-                htmlspecialchars($info->goal),
-                $calorieNorm
+
+        Log::info("sendCalorieNorm: CustomerInfo found (ID: {$info->id}). Calling calculatorService->calculateNorm...");
+
+        if (!isset($this->calculatorService)) {
+            Log::error("sendCalorieNorm: CalorieCalculatorService is not set!");
+            return;
+        }
+
+        $result = $this->calculatorService->calculateNorm($info);
+        Log::info("sendCalorieNorm: Calculation result: " . json_encode($result)); 
+
+        if ($result !== null && isset($result['calories'])) {
+            $messageText = sprintf(
+                "✅ Исходя из ваших данных и цели '%s':\n\n".
+                "Ваша примерная дневная норма: ~<b>%d ккал</b>\n".
+                "БЖУ: <b>~%dг</b> белка / <b>~%dг</b> жира / <b>~%dг</b> углеводов",
+                htmlspecialchars($info->goal ?? 'Не указана'),
+                $result['calories'],
+                $result['protein'] ?? 0,
+                $result['fat'] ?? 0,
+                $result['carbs'] ?? 0
             );
-            Log::info("Webhook: Sending calorie norm for customer {$customer->id}: {$calorieNorm} kcal");
-            $this->sendMessage($chatId, $message, null, 'HTML');
+
+            Log::info("sendCalorieNorm: Attempting to send norm message...");
+            $this->sendMessage($chatId, $messageText, null, 'HTML');
+            Log::info("sendCalorieNorm: Message supposedly sent.");
         } else {
-            Log::warning("Webhook: Failed to calculate calorie norm for customer {$customer->id}");
-            $this->sendMessage($chatId, "Не удалось рассчитать вашу норму калорий из-за недостатка данных или ошибки. Попробуйте команду /mynorm позже.");
+            Log::error("sendCalorieNorm: Calculation returned null or invalid array. Sending fallback message.");
+            $this->sendMessage($chatId, "Не удалось рассчитать вашу норму калорий и БЖУ. Вы можете попробовать команду /mynorm позже.");
+        }
+        Log::info("sendCalorieNorm: Method finished for customer {$customer->id}");
+    }
+    protected function handleCallbackQuery(int $chatId, Customer $customer, string $data): void
+    {
+        switch ($data) {
+            case 'profile':
+                $this->sendFinalSummary($chatId, $customer);
+                break;
+            case 'norm':
+                $this->sendCalorieNorm($chatId, $customer); 
+                break;
+            case 'start':
+                $customer->update(['state' => 'awaiting_goal']);
+                $this->sendMessage($chatId, 'Давайте начнём заново. Выберите вашу цель:');
+                break;
+            default:
+                Log::warning("Webhook: Unknown callback data '{$data}' for customer {$customer->id}");
+                $this->sendMessage($chatId, 'Неизвестное действие. Попробуйте снова.');
+                break;
         }
     }
     protected function sendFinalSummary(int $chatId, Customer $customer): void
