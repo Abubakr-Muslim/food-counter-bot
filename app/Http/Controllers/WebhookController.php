@@ -47,8 +47,7 @@ class WebHookController extends Controller
 
             try {
                 $customer = Customer::where('tg_id', $userId)->firstOrFail();
-                $this->handleCallbackQuery($chatId, $customer, $data);
-                // Подтверждаем получение callback_query
+                $this->handleCallbackQuery($chatId, $customer, $data, $callbackQuery);
                 Telegram::answerCallbackQuery(['callback_query_id' => $callbackQuery->getId()]);
             } catch (ModelNotFoundException $e) {
                 Log::error("Webhook: Customer not found for tg_id: {$userId}");
@@ -313,7 +312,6 @@ class WebHookController extends Controller
                 $result['carbs'] ?? 0
             );
 
-            Log::info("sendCalorieNorm: Attempting to send norm message...");
             $this->sendMessage($chatId, $messageText, null, 'HTML');
             Log::info("sendCalorieNorm: Message supposedly sent.");
         } else {
@@ -322,23 +320,79 @@ class WebHookController extends Controller
         }
         Log::info("sendCalorieNorm: Method finished for customer {$customer->id}");
     }
-    protected function handleCallbackQuery(int $chatId, Customer $customer, string $data): void
+    protected function handleCallbackQuery(int $chatId, Customer $customer, string $data, $callbackQuery): void
     {
+        $messageId = $callbackQuery->getMessage()->getMessageId();
+    
         switch ($data) {
             case 'profile':
-                $this->sendFinalSummary($chatId, $customer);
+                $info = $customer->customerInfo()->latest()->first();
+                if ($info) {
+                    $birthdateFormatted = $info->birthdate ? Carbon::parse($info->birthdate)->isoFormat('LL') : 'Не указана';
+                    $text = "📋 <b>Ваш профиль:</b>\n\n" .
+                            "🎯 <b>Цель:</b> " . ($info->goal ?? 'Не указана') . "\n" .
+                            "👤 <b>Пол:</b> " . ($info->gender ?? 'Не указан') . "\n" .
+                            "📅 <b>Дата рождения:</b> " . $birthdateFormatted . "\n" .
+                            "🏃 <b>Активность:</b> " . ($info->activity_level ?? 'Не указана') . "\n" .
+                            "📏 <b>Рост:</b> " . ($info->height ? $info->height . ' см' : 'Не указан') . "\n" .
+                            "⚖️ <b>Вес:</b> " . ($info->weight ? $info->weight . ' кг' : 'Не указан');
+                } else {
+                    $text = "Профиль не найден. Завершите настройку через /start.";
+                }
                 break;
             case 'norm':
-                $this->sendCalorieNorm($chatId, $customer); 
+                $info = $customer->customerInfo()->latest()->first();
+                if ($info) {
+                    $calculator = new CalorieCalculatorService();
+                    $result = $calculator->calculateNorm($info);
+                    if ($result) {
+                        $text = sprintf(
+                            "✅ <b>Ваша текущая цель:</b> %s\n\n" .
+                            "📊 <b>Дневная норма:</b> ~%d ккал\n\n" .
+                            "🍽 <b>БЖУ:</b>\n" .
+                            " 🍗 <b>Белки:</b> ~%dг\n" .
+                            " 🥑 <b>Жиры:</b> ~%dг\n" .
+                            " 🍞 <b>Углеводы:</b> ~%dг",
+                            htmlspecialchars($info->goal ?? 'Не указана'),
+                            $result['calories'],
+                            $result['protein'],
+                            $result['fat'],
+                            $result['carbs'],
+                        );
+                    } else {
+                        $text = "Не удалось рассчитать норму. Проверьте данные через /myprofile.";
+                    }
+                } else {
+                    $text = "Данные профиля не найдены. Используйте /start.";
+                }
                 break;
             case 'start':
                 $customer->update(['state' => 'awaiting_goal']);
-                $this->sendMessage($chatId, 'Давайте начнём заново. Выберите вашу цель:');
+                $text = "Давайте начнём заново. Выберите вашу цель:";
                 break;
             default:
-                Log::warning("Webhook: Unknown callback data '{$data}' for customer {$customer->id}");
-                $this->sendMessage($chatId, 'Неизвестное действие. Попробуйте снова.');
+                $text = "Неизвестное действие. Попробуйте снова.";
                 break;
+        }
+    
+        try {
+            Telegram::editMessageText([
+                'chat_id' => $chatId,
+                'message_id' => $messageId,
+                'text' => $text,
+                'parse_mode' => 'HTML',
+                'reply_markup' => Keyboard::make()->inline()
+                    ->row([
+                        Keyboard::inlineButton(['text' => 'Мой профиль', 'callback_data' => 'profile']),
+                        Keyboard::inlineButton(['text' => 'Моя норма', 'callback_data' => 'norm']),
+                    ])
+                    ->row([
+                        Keyboard::inlineButton(['text' => 'Начать заново', 'callback_data' => 'start']),
+                    ]),
+            ]);
+            Log::info("Webhook: Updated message {$messageId} in chat {$chatId} with data '{$data}'");
+        } catch (TelegramSDKException $e) {
+            Log::error("Webhook: Failed to edit message {$messageId} in chat {$chatId}", ['error' => $e->getMessage()]);
         }
     }
     protected function sendFinalSummary(int $chatId, Customer $customer): void

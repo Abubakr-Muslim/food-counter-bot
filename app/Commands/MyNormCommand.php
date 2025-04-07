@@ -20,8 +20,8 @@ class MyNormCommand extends Command
 
     public function handle(): void
     {
-        $userId = null;
-        $chatId = null;
+        $chatId = $this->getUpdate()->getMessage()->getChat()->getId();
+        $userId = $this->getUpdate()->getMessage()->getFrom()->getId();
 
         try {
             $update = $this->getUpdate();
@@ -60,14 +60,17 @@ class MyNormCommand extends Command
 
             if ($result !== null && isset($result['calories'])) {
                 $responseText = sprintf(
-            "✅ Ваша текущая цель: *%s*.\n\n" .
-                    "Примерная дневная норма: *~%d ккал*\n" .
-                    "БЖУ: *~%dг* белка / *~%dг* жира / *~%dг* углеводов\n\n",
+                    "✅ Ваша текущая цель: *%s*\n\n" .
+                    "📊 *Дневная норма: ~%d ккал*\n\n" .
+                    "🍽 *БЖУ:*\n" .
+                    " 🍗 Белки: *~%dг*\n" .
+                    " 🥑 Жиры: *~%dг*\n" .
+                    " 🍞 Углеводы: *~%dг*",
                     htmlspecialchars($info->goal ?? 'Не указана'),
-                    $result['calories'],     
-                    $result['protein'] ?? 0, 
-                    $result['fat'] ?? 0,
-                    $result['carbs'] ?? 0
+                    $result['calories'],
+                    $result['protein'],
+                    $result['fat'],
+                    $result['carbs'],
                 );
                 $this->sendMessage($chatId, $responseText, null, 'Markdown'); 
            } else {
