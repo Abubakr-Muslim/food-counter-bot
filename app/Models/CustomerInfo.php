@@ -14,7 +14,7 @@ class CustomerInfo extends Model
         'customer_id',
         'goal',
         'gender',
-        'birthdate',
+        'birth_year',
         'activity_level',
         'height',
         'weight',

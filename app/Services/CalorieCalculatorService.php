@@ -41,7 +41,7 @@ class CalorieCalculatorService
                 return null;
             }
 
-            $age = Carbon::parse($info->birthdate)->age;
+            $age = Carbon::now()->year - $info->birth_year;
             $weight = (float)$info->weight;
             $height = (int)$info->height;
             $gender = $info->gender;
@@ -104,7 +104,7 @@ class CalorieCalculatorService
     {
         return isset($info->weight) && $info->weight > 0 &&
                isset($info->height) && $info->height > 0 &&
-               isset($info->birthdate) && Carbon::parse($info->birthdate)->isPast() &&
+               isset($info->birth_year) && $info->birth_year > (Carbon::now()->year - 120) && $info->birth_year <= Carbon::now()->year && // Год рождения в разумных пределах
                isset($info->gender) && in_array($info->gender, ['Мужской', 'Женский']) &&
                isset($info->activity_level) && array_key_exists($info->activity_level, self::ACTIVITY_FACTORS) &&
                isset($info->goal) && array_key_exists($info->goal, self::GOAL_ADJUSTMENTS);

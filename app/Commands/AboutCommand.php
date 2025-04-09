@@ -14,7 +14,7 @@ class AboutCommand extends Command
         $response = 'Этот бот был создан для анализа фотографий еды и определения их калорийности.';
         $response .= PHP_EOL . 'Разработчик: ';
         $response .= PHP_EOL . 'Связаться: ';
-        $response .= PHP_EOL . 'Версия: 0.1';
+        $response .= PHP_EOL . 'Версия: 0.2';
 
         $this->replyWithMessage(['text' => $response]);
     }

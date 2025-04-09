@@ -125,22 +125,27 @@ class WebHookController extends Controller
                 $validGenders = ['Мужской', 'Женский'];
                 if (in_array($messageText, $validGenders)) {
                     if ($this->saveCustomerInfo($customer, ['gender' => $messageText], $chatId, 'saving gender')) { // false = use update
-                        $customer->update(['state' => 'awaiting_birthdate']);
-                        $this->askBirthdate($chatId);
+                        $customer->update(['state' => 'awaiting_age']);
+                        $this->askAge($chatId);
                     }
                 } else {
                     $this->sendMessage($chatId, 'Пожалуйста, выберите пол, используя кнопки.');
                 }
                 break;
 
-            case 'awaiting_birthdate':
-                if (preg_match('/^\d{4}-\d{2}-\d{2}$/', $messageText) && $this->isValidDate($messageText)) {
-                     if ($this->saveCustomerInfo($customer, ['birthdate' => $messageText], $chatId, 'saving birthdate')) {
+            case 'awaiting_age':
+                $ageInput = filter_var($messageText, FILTER_SANITIZE_NUMBER_INT);
+
+                if (is_numeric($ageInput) && $ageInput >= 7 && $ageInput <= 100) {
+                    $age = (int)$ageInput;
+                    $birthYear = Carbon::now()->year - $age;
+            
+                    if ($this->saveCustomerInfo($customer, ['birth_year' => $birthYear], $chatId, 'saving birth year')) {
                         $customer->update(['state' => 'awaiting_activity']);
                         $this->askActivityLevel($chatId);
-                     }
+                    }
                 } else {
-                    $this->sendMessage($chatId, 'Неверный формат или дата. Введите, пожалуйста, в формате ГГГГ-ММ-ДД (например, 1990-05-21) и убедитесь, что дата корректна и не в будущем.');
+                    $this->sendMessage($chatId, 'Пожалуйста, введите ваш возраст цифрами (например, 25). Допустимый возраст от 12 до 100 лет.');
                 }
                 break;
 
@@ -214,15 +219,6 @@ class WebHookController extends Controller
             return false; 
         }
     }
-    protected function isValidDate(string $dateString): bool
-    {
-         try {
-             $date = Carbon::createFromFormat('Y-m-d', $dateString);
-             return $date && $date->format('Y-m-d') === $dateString && !$date->isFuture();
-         } catch (Exception $e) {
-             return false;
-         }
-    }
     protected function sendMessage(int $chatId, string $text, $replyMarkup = null, $parseMode = null): void
     {
         try {
@@ -246,13 +242,15 @@ class WebHookController extends Controller
             ->row(['Мужской', 'Женский']);
          $this->sendMessage($chatId, 'Отлично! Теперь выберите свой пол:', $keyboard);
     }
-    protected function askBirthdate(int $chatId): void
+    protected function askAge(int $chatId): void
     {
-        $keyboard = Keyboard::make()
-            ->setResizeKeyboard(true)
-            ->setOneTimeKeyboard(true);
-            
-        $this->sendMessage($chatId, 'Пожалуйста, введите свою дату рождения в формате ГГГГ-ММ-ДД (например, 1999-01-15):', $keyboard);
+        $keyboard = Keyboard::make()->setRemoveKeyboard(true);
+
+        $this->sendMessage(
+            $chatId,
+            'Пожалуйста, введите ваш возраст (полных лет):',
+            $keyboard 
+        );            
     }
     protected function askActivityLevel(int $chatId): void
     {
@@ -302,14 +300,17 @@ class WebHookController extends Controller
 
         if ($result !== null && isset($result['calories'])) {
             $messageText = sprintf(
-                "✅ Исходя из ваших данных и цели '%s':\n\n".
-                "Ваша примерная дневная норма: ~<b>%d ккал</b>\n".
-                "БЖУ: <b>~%dг</b> белка / <b>~%dг</b> жира / <b>~%dг</b> углеводов",
+                "✅ <b>Ваша текущая цель:</b> %s\n\n" .
+                "📊 <b>Дневная норма:</b> ~%d ккал\n\n" .
+                "🍽 <b>БЖУ:</b>\n" .
+                " 🍗 <b>Белки:</b> ~%dг\n" .
+                " 🥑 <b>Жиры:</b> ~%dг\n" .
+                " 🍞 <b>Углеводы:</b> ~%dг",
                 htmlspecialchars($info->goal ?? 'Не указана'),
                 $result['calories'],
-                $result['protein'] ?? 0,
-                $result['fat'] ?? 0,
-                $result['carbs'] ?? 0
+                $result['protein'],
+                $result['fat'],
+                $result['carbs'],
             );
 
             $this->sendMessage($chatId, $messageText, null, 'HTML');
@@ -328,11 +329,11 @@ class WebHookController extends Controller
             case 'profile':
                 $info = $customer->customerInfo()->latest()->first();
                 if ($info) {
-                    $birthdateFormatted = $info->birthdate ? Carbon::parse($info->birthdate)->isoFormat('LL') : 'Не указана';
+                    $ageText = $info->birth_year ? (Carbon::now()->year - $info->birth_year) . ' лет' : 'Не указан';
                     $text = "📋 <b>Ваш профиль:</b>\n\n" .
                             "🎯 <b>Цель:</b> " . ($info->goal ?? 'Не указана') . "\n" .
                             "👤 <b>Пол:</b> " . ($info->gender ?? 'Не указан') . "\n" .
-                            "📅 <b>Дата рождения:</b> " . $birthdateFormatted . "\n" .
+                            "📅 <b>Возраст:</b> " . $ageText . "\n" .
                             "🏃 <b>Активность:</b> " . ($info->activity_level ?? 'Не указана') . "\n" .
                             "📏 <b>Рост:</b> " . ($info->height ? $info->height . ' см' : 'Не указан') . "\n" .
                             "⚖️ <b>Вес:</b> " . ($info->weight ? $info->weight . ' кг' : 'Не указан');
@@ -406,12 +407,12 @@ class WebHookController extends Controller
              return;
         }
 
-        $birthdateFormatted = $info->birthdate ? Carbon::parse($info->birthdate)->isoFormat('LL') : 'Не указана';
+        $ageText = $info->birth_year ? (Carbon::now()->year - $info->birth_year) . ' лет' : 'Не указан';
 
         $finalMessage = "Спасибо! 👍 Ваш профиль успешно настроен:\n\n" .
                         "<b>🎯 Цель:</b> " . ($info->goal ?? 'Не указана') . "\n" .
                         "<b>👤 Пол:</b> " . ($info->gender ?? 'Не указан') . "\n" .
-                        "<b>📅 Дата рождения:</b> " . $birthdateFormatted . "\n" .
+                        "<b>🎂 Возраст:</b> " . $ageText . "\n" .
                         "<b>🏃 Активность:</b> " . ($info->activity_level ?? 'Не указана') . "\n" .
                         "<b>📏 Рост:</b> " . ($info->height ? $info->height . ' см' : 'Не указан') . "\n" .
                         "<b>⚖️ Вес:</b> " . ($info->weight ? $info->weight . ' кг' : 'Не указан') . "\n\n" .

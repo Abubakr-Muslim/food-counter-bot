@@ -52,14 +52,14 @@ class MyProfileCommand extends Command
 
             Log::info("MyProfileCommand: User={$userId}. Profile data found.");
 
-            $birthdateFormatted = $info->birthdate ? Carbon::parse($info->birthdate)->isoFormat('LL') : 'Не указана';
+            $ageText = $info->birth_year ? (Carbon::now()->year - $info->birth_year) . ' лет' : 'Не указан';
             $weightFormatted = $info->weight ? $info->weight . ' кг' : 'Не указан';
             $heightFormatted = $info->height ? $info->height . ' см' : 'Не указан';
 
             $profileMessage = "<b>📋 Ваш профиль:</b>\n\n" .
                               "🎯 <b>Цель:</b> " . htmlspecialchars($info->goal ?? 'Не указана') . "\n" .
                               "👤 <b>Пол:</b> " . htmlspecialchars($info->gender ?? 'Не указан') . "\n" .
-                              "📅 <b>Дата рождения:</b> " . htmlspecialchars($birthdateFormatted) . "\n" .
+                              "📅 <b>Возраст:</b> " . $ageText . "\n" .
                               "🏃 <b>Активность:</b> " . htmlspecialchars($info->activity_level ?? 'Не указана') . "\n" .
                               "📏 <b>Рост:</b> " . htmlspecialchars($heightFormatted) . "\n" .
                               "⚖️ <b>Вес:</b> " . htmlspecialchars($weightFormatted) . "\n\n" .
