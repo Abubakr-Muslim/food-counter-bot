@@ -148,22 +148,22 @@ class WebHookController extends Controller
             $this->sendMessage($chatId, 'Пожалуйста, выберите пол:');
         }
     }
-protected function handleAwaitingAge(Customer $customer, int $chatId, string $messageText): void
-{
-    $ageInput = filter_var($messageText, FILTER_SANITIZE_NUMBER_INT);
+    protected function handleAwaitingAge(Customer $customer, int $chatId, string $messageText): void
+    {
+        $ageInput = filter_var($messageText, FILTER_SANITIZE_NUMBER_INT);
 
-    if (is_numeric($ageInput) && $ageInput >= 7 && $ageInput <= 100) {
-        $age = (int)$ageInput;
-        $birthYear = Carbon::now()->year - $age;
+        if (is_numeric($ageInput) && $ageInput >= 7 && $ageInput <= 100) {
+            $age = (int)$ageInput;
+            $birthYear = Carbon::now()->year - $age;
 
-        if ($this->saveCustomerInfo($customer, ['birth_year' => $birthYear], $chatId, 'saving birth year')) {
-            $customer->update(['state' => 'awaiting_activity']);
-            $this->askActivityLevel($chatId);
+            if ($this->saveCustomerInfo($customer, ['birth_year' => $birthYear], $chatId, 'saving birth year')) {
+                $customer->update(['state' => 'awaiting_activity']);
+                $this->askActivityLevel($chatId);
+            }
+        } else {
+            $this->sendMessage($chatId, 'Пожалуйста, введите ваш возраст цифрами (например, 25). Допустимый возраст от 12 до 100 лет.');
         }
-    } else {
-        $this->sendMessage($chatId, 'Пожалуйста, введите ваш возраст цифрами (например, 25). Допустимый возраст от 12 до 100 лет.');
     }
-}
     protected function handleAwaitingActivity(Customer $customer, int $chatId, string $messageText): void
     {
         $validActivities = ['Высокая активность', 'Средняя активность', 'Минимум активности', 'Сидячий образ жизни'];
