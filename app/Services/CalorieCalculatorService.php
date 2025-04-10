@@ -36,6 +36,8 @@ class CalorieCalculatorService
     public function calculateNorm(CustomerInfo $info): ?array
     {
         try {
+            Log::debug("CalculatorService: Checking data for CustomerInfo.", ['info_object' => $info->toArray()]);
+
             if (!$this->hasRequiredData($info)) {
                 Log::warning("Calorie calculation failed: Missing or invalid data for CustomerInfo ID {$info->id}");
                 return null;
@@ -102,12 +104,23 @@ class CalorieCalculatorService
 
     public function hasRequiredData(CustomerInfo $info): bool
     {
-        return isset($info->weight) && $info->weight > 0 &&
-               isset($info->height) && $info->height > 0 &&
-               isset($info->birth_year) && $info->birth_year > (Carbon::now()->year - 120) && $info->birth_year <= Carbon::now()->year && // Год рождения в разумных пределах
-               isset($info->gender) && in_array($info->gender, ['Мужской', 'Женский']) &&
-               isset($info->activity_level) && array_key_exists($info->activity_level, self::ACTIVITY_FACTORS) &&
-               isset($info->goal) && array_key_exists($info->goal, self::GOAL_ADJUSTMENTS);
+        $checks = [];
+        $checks['weight_check'] = isset($info->weight) && $info->weight > 0;
+        $checks['height_check'] = isset($info->height) && $info->height > 0;
+        $checks['birth_year_check'] = isset($info->birth_year) && $info->birth_year > (Carbon::now()->year - 120) && $info->birth_year <= Carbon::now()->year;
+        $checks['gender_check'] = isset($info->gender) && in_array($info->gender, ['Мужской', 'Женский']);
+        $checks['activity_check'] = isset($info->activity_level) && array_key_exists($info->activity_level, self::ACTIVITY_FACTORS);
+        $checks['goal_check'] = isset($info->goal) && array_key_exists($info->goal, self::GOAL_ADJUSTMENTS);
+
+        $finalResult = !in_array(false, $checks, true);
+
+        Log::debug("CalculatorService: hasRequiredData check results.", [
+            'info_id' => $info->id,
+            'checks' => $checks,
+            'final_result' => $finalResult 
+        ]);
+    
+        return $finalResult;
     }
 
     private function calculateBMR(float $weight, int $height, int $age, string $gender): ?float

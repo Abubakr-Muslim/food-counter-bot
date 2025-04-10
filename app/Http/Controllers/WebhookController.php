@@ -13,10 +13,11 @@ use Exception;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Carbon\Carbon;
 use App\Services\CalorieCalculatorService; 
-
+use App\Traits\TelegramMessageSender;
 
 class WebHookController extends Controller
 {
+    use TelegramMessageSender;
     protected BotsManager $botsManager;
     protected CalorieCalculatorService $calculatorService;
 
@@ -108,91 +109,99 @@ class WebHookController extends Controller
     }
     protected function handleUserState(?string $currentState, Customer $customer, int $chatId, string $messageText): void
     {
-        switch ($currentState) {
-            case 'awaiting_goal':
-                $validGoals = ['Сбросить вес', 'Удержать вес', 'Нарастить мышцы'];
-                if (in_array($messageText, $validGoals)) {
-                    if ($this->saveCustomerInfo($customer, ['goal' => $messageText], $chatId, 'saving goal', true)) {
-                        $customer->update(['state' => 'awaiting_gender']);
-                        $this->askGender($chatId);
-                    }
-                } else {
-                    $this->sendMessage($chatId, 'Пожалуйста, выберите цель:');
-                }
-                break;
+        $handlers = [
+            'awaiting_goal' => [$this, 'handleAwaitingGoal'],
+            'awaiting_gender' => [$this, 'handleAwaitingGender'],
+            'awaiting_age' => [$this, 'handleAwaitingAge'],
+            'awaiting_activity' => [$this, 'handleAwaitingActivity'],
+            'awaiting_height' => [$this, 'handleAwaitingHeight'],
+            'awaiting_weight' => [$this, 'handleAwaitingWeight'],
+        ];
+    
+        if (isset($handlers[$currentState])) {
+            $handlers[$currentState]($customer, $chatId, $messageText);
+        } else {
+            Log::info("Webhook: Unhandled state='{$currentState}' for User={$customer->tg_id}");
+        }
+    }
+    protected function handleAwaitingGoal(Customer $customer, int $chatId, string $messageText): void
+    {
+        $validGoals = ['Сбросить вес', 'Удержать вес', 'Нарастить мышцы'];
+        if (in_array($messageText, $validGoals)) {
+            if ($this->saveCustomerInfo($customer, ['goal' => $messageText], $chatId, 'saving goal', true)) {
+                $customer->update(['state' => 'awaiting_gender']);
+                $this->askGender($chatId);
+            }
+        } else {
+            $this->sendMessage($chatId, 'Пожалуйста, выберите цель:');
+        }
+    }
+    protected function handleAwaitingGender(Customer $customer, int $chatId, string $messageText): void
+    {
+        $validGenders = ['Мужской', 'Женский'];
+        if (in_array($messageText, $validGenders)) {
+            if ($this->saveCustomerInfo($customer, ['gender' => $messageText], $chatId, 'saving gender')) {
+                $customer->update(['state' => 'awaiting_age']);
+                $this->askAge($chatId);
+            }
+        } else {
+            $this->sendMessage($chatId, 'Пожалуйста, выберите пол:');
+        }
+    }
+protected function handleAwaitingAge(Customer $customer, int $chatId, string $messageText): void
+{
+    $ageInput = filter_var($messageText, FILTER_SANITIZE_NUMBER_INT);
 
-            case 'awaiting_gender':
-                $validGenders = ['Мужской', 'Женский'];
-                if (in_array($messageText, $validGenders)) {
-                    if ($this->saveCustomerInfo($customer, ['gender' => $messageText], $chatId, 'saving gender')) { // false = use update
-                        $customer->update(['state' => 'awaiting_age']);
-                        $this->askAge($chatId);
-                    }
-                } else {
-                    $this->sendMessage($chatId, 'Пожалуйста, выберите пол, используя кнопки.');
-                }
-                break;
+    if (is_numeric($ageInput) && $ageInput >= 7 && $ageInput <= 100) {
+        $age = (int)$ageInput;
+        $birthYear = Carbon::now()->year - $age;
 
-            case 'awaiting_age':
-                $ageInput = filter_var($messageText, FILTER_SANITIZE_NUMBER_INT);
-
-                if (is_numeric($ageInput) && $ageInput >= 7 && $ageInput <= 100) {
-                    $age = (int)$ageInput;
-                    $birthYear = Carbon::now()->year - $age;
-            
-                    if ($this->saveCustomerInfo($customer, ['birth_year' => $birthYear], $chatId, 'saving birth year')) {
-                        $customer->update(['state' => 'awaiting_activity']);
-                        $this->askActivityLevel($chatId);
-                    }
-                } else {
-                    $this->sendMessage($chatId, 'Пожалуйста, введите ваш возраст цифрами (например, 25). Допустимый возраст от 12 до 100 лет.');
-                }
-                break;
-
-            case 'awaiting_activity':
-                $validActivities = ['Высокая активность', 'Средняя активность', 'Минимум активности', 'Сидячий образ жизни'];
-                if (in_array($messageText, $validActivities)) {
-                     if ($this->saveCustomerInfo($customer, ['activity_level' => $messageText], $chatId, 'saving activity')) {
-                        $customer->update(['state' => 'awaiting_height']);
-                        $this->askHeight($chatId);
-                     }
-                } else {
-                    $this->sendMessage($chatId, 'Пожалуйста, выберите уровень активности, используя кнопки.');
-                }
-                break;
-
-            case 'awaiting_height':
-                 $heightInput = filter_var($messageText, FILTER_SANITIZE_NUMBER_INT);
-                 if (is_numeric($heightInput) && $heightInput >= 50 && $heightInput <= 280) {
-                      if ($this->saveCustomerInfo($customer, ['height' => (int)$heightInput], $chatId, 'saving height')) {
-                        $customer->update(['state' => 'awaiting_weight']);
-                        $this->askWeight($chatId);
-                      }
-                 } else {
-                     $this->sendMessage($chatId, 'Пожалуйста, введите ваш рост в сантиметрах (число от 50 до 280).');
-                 }
-                 break;
-
-            case 'awaiting_weight':
-                $weightInput = str_replace(',', '.', $messageText);
-                $weightInput = filter_var($weightInput, FILTER_SANITIZE_NUMBER_FLOAT, FILTER_FLAG_ALLOW_FRACTION);
-                if (is_numeric($weightInput) && $weightInput > 20 && $weightInput < 500) {
-                    if ($this->saveCustomerInfo($customer, ['weight' => (float)$weightInput], $chatId, 'saving weight')) {
-                        $customer->update(['state' => null]); 
-                        Log::info("Onboarding completed for customer {$customer->id}. Session state cleared.");
-                        $this->sendFinalSummary($chatId, $customer);
-                        Log::info("Webhook: Attempting to call sendCalorieNorm for customer {$customer->id}");
-                        $this->sendCalorieNorm($chatId, $customer);
-                        Log::info("Webhook: Finished calling sendCalorieNorm for customer {$customer->id}");                  }
-                } else {
-                    $this->sendMessage($chatId, 'Пожалуйста, введите ваш вес в килограммах (число от 20 до 500, можно с точкой или запятой).');
-                }
-                break;
-
-            default:
-                 Log::info("Webhook: User={$customer->tg_id}, Unhandled state='{$currentState}', Message='{$messageText}'");
-                break;
-        } 
+        if ($this->saveCustomerInfo($customer, ['birth_year' => $birthYear], $chatId, 'saving birth year')) {
+            $customer->update(['state' => 'awaiting_activity']);
+            $this->askActivityLevel($chatId);
+        }
+    } else {
+        $this->sendMessage($chatId, 'Пожалуйста, введите ваш возраст цифрами (например, 25). Допустимый возраст от 12 до 100 лет.');
+    }
+}
+    protected function handleAwaitingActivity(Customer $customer, int $chatId, string $messageText): void
+    {
+        $validActivities = ['Высокая активность', 'Средняя активность', 'Минимум активности', 'Сидячий образ жизни'];
+        if (in_array($messageText, $validActivities)) {
+            if ($this->saveCustomerInfo($customer, ['activity_level' => $messageText], $chatId, 'saving activity')) {
+                $customer->update(['state' => 'awaiting_height']);
+                $this->askHeight($chatId);
+            }
+        } else {
+            $this->sendMessage($chatId, 'Пожалуйста, выберите уровень активности, используя кнопки.');
+        }
+    }
+    protected function handleAwaitingHeight(Customer $customer, int $chatId, string $messageText): void
+    {
+        $heightInput = filter_var($messageText, FILTER_SANITIZE_NUMBER_INT);
+        if (is_numeric($heightInput) && $heightInput >= 50 && $heightInput <= 280) {
+            if ($this->saveCustomerInfo($customer, ['height' => (int)$heightInput], $chatId, 'saving height')) {
+                $customer->update(['state' => 'awaiting_weight']);
+                $this->askWeight($chatId);
+            }
+        } else {
+            $this->sendMessage($chatId, 'Пожалуйста, введите ваш рост в сантиметрах (число от 50 до 280).');
+        }
+    }
+    protected function handleAwaitingWeight(Customer $customer, int $chatId, string $messageText): void
+    {
+        $weightInput = str_replace(',', '.', $messageText);
+        $weightInput = filter_var($weightInput, FILTER_SANITIZE_NUMBER_FLOAT, FILTER_FLAG_ALLOW_FRACTION);
+        if (is_numeric($weightInput) && $weightInput > 20 && $weightInput < 500) {
+            if ($this->saveCustomerInfo($customer, ['weight' => (float)$weightInput], $chatId, 'saving weight')) {
+                $customer->update(['state' => null]);
+                Log::info("Onboarding completed for customer {$customer->id}. Session state cleared.");
+                $this->sendFinalSummary($chatId, $customer);
+                $this->sendCalorieNorm($chatId, $customer);
+            }
+        } else {
+            $this->sendMessage($chatId, 'Пожалуйста, введите ваш вес в килограммах (число от 20 до 500, можно с точкой или запятой).');
+        }
     }
     protected function saveCustomerInfo(Customer $customer, array $data, int $chatId, string $actionDescription, bool $forceCreate = false): bool
     {
@@ -200,12 +209,20 @@ class WebHookController extends Controller
             $info = null;
             if ($forceCreate) {
                 $info = $customer->customerInfo()->create($data);
-                 Log::info("Created new CustomerInfo for {$actionDescription}, customer {$customer->id}", ['customer_info_id' => $info->id] + $data);
+                Log::info("Created new CustomerInfo for {$actionDescription}, customer {$customer->id}", ['customer_info_id' => $info->id] + $data);
             } else {
                 $info = $customer->customerInfo()->latest()->first();
                 if ($info) {
-                    $info->update($data);
-                     Log::info("Updated CustomerInfo for {$actionDescription}, customer {$customer->id}", ['customer_info_id' => $info->id] + $data);
+                    Log::debug("saveCustomerInfo: Attempting to update CustomerInfo ID {$info->id} with data:", $data);
+                    $updateResult = $info->update($data); 
+                    Log::debug("saveCustomerInfo: Update executed for CustomerInfo ID {$info->id}. Result: " . ($updateResult ? 'true' : 'false'));
+    
+                    if (!$updateResult) { 
+                         Log::error("saveCustomerInfo: info->update() returned false.", ['data' => $data]);
+                         throw new Exception("Failed to update CustomerInfo."); 
+                    }
+    
+                    Log::info("Updated CustomerInfo for {$actionDescription}, customer {$customer->id}", ['customer_info_id' => $info->id] + $data);
                 } else {
                     Log::error("Failed {$actionDescription}: CustomerInfo record not found for customer {$customer->id} when update was expected.");
                     $this->sendMessage($chatId, 'Произошла внутренняя ошибка: профиль не найден для обновления. Попробуйте /start.');
@@ -217,21 +234,6 @@ class WebHookController extends Controller
         } catch (Exception $e) {
             $this->handleError($e, $chatId, $customer->id, $actionDescription);
             return false; 
-        }
-    }
-    protected function sendMessage(int $chatId, string $text, $replyMarkup = null, $parseMode = null): void
-    {
-        try {
-            $params = ['chat_id' => $chatId, 'text' => $text];
-            if ($replyMarkup !== null) {
-                $params['reply_markup'] = $replyMarkup;
-            }
-            if ($parseMode !== null) {
-                $params['parse_mode'] = $parseMode;
-            }
-            Telegram::sendMessage($params);
-        } catch (TelegramSDKException $e) {
-            Log::error("Failed to send message to chat {$chatId}", ['error' => $e->getMessage()]);
         }
     }
     protected function askGender(int $chatId): void
@@ -302,7 +304,7 @@ class WebHookController extends Controller
             $messageText = sprintf(
                 "✅ <b>Ваша текущая цель:</b> %s\n\n" .
                 "📊 <b>Дневная норма:</b> ~%d ккал\n\n" .
-                "🍽 <b>БЖУ:</b>\n" .
+                "🍽 <b>Б|Ж|У:</b>\n" .
                 " 🍗 <b>Белки:</b> ~%dг\n" .
                 " 🥑 <b>Жиры:</b> ~%dг\n" .
                 " 🍞 <b>Углеводы:</b> ~%dг",
@@ -350,7 +352,7 @@ class WebHookController extends Controller
                         $text = sprintf(
                             "✅ <b>Ваша текущая цель:</b> %s\n\n" .
                             "📊 <b>Дневная норма:</b> ~%d ккал\n\n" .
-                            "🍽 <b>БЖУ:</b>\n" .
+                            "🍽 <b>Б|Ж|У:</b>\n" .
                             " 🍗 <b>Белки:</b> ~%dг\n" .
                             " 🥑 <b>Жиры:</b> ~%dг\n" .
                             " 🍞 <b>Углеводы:</b> ~%dг",
