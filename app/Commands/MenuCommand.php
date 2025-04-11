@@ -19,8 +19,11 @@ class MenuCommand extends Command
         $keyboard = Keyboard::make()
             ->inline()
             ->row([
-                Keyboard::inlineButton(['text' => 'Мой профиль', 'callback_data' => 'profile']),
-                Keyboard::inlineButton(['text' => 'Моя цель по калориям', 'callback_data' => 'norm']),
+                Keyboard::inlineButton(['text' => '⚙️ Мой профиль', 'callback_data' => 'profile']),
+                Keyboard::inlineButton(['text' => '🎯 Моя цель', 'callback_data' => 'norm']),
+            ])
+            ->row([
+                Keyboard::inlineButton(['text' => '📊 Сводка за сегодня', 'callback_data' => 'today'])
             ])
             ->row([
                 Keyboard::inlineButton(['text' => 'Начать заново', 'callback_data' => 'start']),

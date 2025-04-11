@@ -379,6 +379,47 @@ class WebHookController extends Controller
                     $text = "Данные профиля не найдены. Используйте /start.";
                 }
                 break;
+            case 'today':
+                $info = $customer->customerInfo()->latest()->first();
+                if ($info && $this->calculatorService->hasRequiredData($info)) {
+                    $dailyTotals = $customer->getDailyTotals(); 
+                    $normData = $this->calculatorService->calculateNorm($info);
+        
+                    $text = "📊 <b>Сводка за сегодня:</b>\n\n"; 
+                    if ($normData && isset($normData['calories'])) {
+                        $text .= sprintf(
+                            "Калории: <b>%d</b> / %d ккал\n".
+                            "Белки: <b>%.1f</b> / %d г\n".
+                            "Жиры: <b>%.1f</b> / %d г\n".
+                            "Углеводы: <b>%.1f</b> / %d г",
+                            $dailyTotals['total_calories'], $normData['calories'],
+                            $dailyTotals['total_protein'], $normData['protein'] ?? 0,
+                            $dailyTotals['total_fat'], $normData['fat'] ?? 0,
+                            $dailyTotals['total_carbs'], $normData['carbs'] ?? 0
+                        );
+                         if ($dailyTotals['total_calories'] > $normData['calories']) {
+                             $exceeded = $dailyTotals['total_calories'] - $normData['calories'];
+                             $text .= "\n\n⚠️ <b>Превышение нормы калорий на {$exceeded} ккал!</b>";
+                         } elseif ($dailyTotals['total_calories'] > $normData['calories'] * 0.9) {
+                             $text .= "\n\n👀 <b>Норма калорий почти достигнута.</b>";
+                         }
+                    } else {
+                         $text .= sprintf(
+                            "Калории: <b>%d</b> ккал\n".
+                            "Белки: <b>%.1f</b> г\n".
+                            "Жиры: <b>%.1f</b> г\n".
+                            "Углеводы: <b>%.1f</b> г",
+                            $dailyTotals['total_calories'],
+                            $dailyTotals['total_protein'],
+                            $dailyTotals['total_fat'],
+                            $dailyTotals['total_carbs']
+                        );
+                        $text .= "\n\n<i>(Не удалось получить норму для сравнения)</i>";
+                    }
+                } else {
+                    $text = "Профиль не заполнен полностью. Используйте /start.";
+                }
+                break;
             case 'start':
                 $customer->update(['state' => 'awaiting_goal']);
                 $text = "Давайте начнём заново. Выберите вашу цель:";
@@ -396,12 +437,15 @@ class WebHookController extends Controller
                 'parse_mode' => 'HTML',
                 'reply_markup' => Keyboard::make()->inline()
                     ->row([
-                        Keyboard::inlineButton(['text' => 'Мой профиль', 'callback_data' => 'profile']),
-                        Keyboard::inlineButton(['text' => 'Моя норма', 'callback_data' => 'norm']),
+                        Keyboard::inlineButton(['text' => '⚙️ Мой профиль', 'callback_data' => 'profile']),
+                        Keyboard::inlineButton(['text' => '🎯 Моя цель', 'callback_data' => 'norm']),
+                    ])
+                    ->row([
+                        Keyboard::inlineButton(['text' => '📊 Сводка за сегодня', 'callback_data' => 'today'])
                     ])
                     ->row([
                         Keyboard::inlineButton(['text' => 'Начать заново', 'callback_data' => 'start']),
-                    ]),
+                    ])
             ]);
             Log::info("Webhook: Updated message {$messageId} in chat {$chatId} with data '{$data}'");
         } catch (TelegramSDKException $e) {
@@ -469,7 +513,7 @@ class WebHookController extends Controller
 
         if ($foodData !== null && isset($foodData['calories'])) {
             if ($this->saveLoggedMeal($customer, $foodData, $chatId)) {
-                $dailyTotals = $this->calculateDailyTotals($customer);
+                $dailyTotals = $customer->getDailyTotals();
                 $normData = $this->calculatorService->calculateNorm($customerInfo);
                 $this->sendDailyIntakeUpdate($chatId, $foodData, $dailyTotals, $normData);
             }
@@ -537,23 +581,6 @@ class WebHookController extends Controller
             $this->sendMessage($chatId, "Не удалось сохранить запись о приеме пищи '{$foodData['name']}'. Попробуйте позже.");
             return false;
         }
-    }
-    protected function calculateDailyTotals(Customer $customer): array
-    {
-        $todayStart = Carbon::today()->startOfDay();
-        $todayEnd = Carbon::today()->endOfDay();
-  
-        $totals = LoggedMeal::where('customer_id', $customer->id)
-            ->whereBetween('logged_at', [$todayStart, $todayEnd])
-            ->selectRaw('SUM(calories) as total_calories, SUM(protein) as total_protein, SUM(fat) as total_fat, SUM(carbs) as total_carbs')
-            ->first(); 
-  
-        return [
-            'total_calories' => (int)($totals->total_calories ?? 0),
-            'total_protein' => round((float)($totals->total_protein ?? 0.0), 1), 
-            'total_fat' => round((float)($totals->total_fat ?? 0.0), 1),
-            'total_carbs' => round((float)($totals->total_carbs ?? 0.0), 1),
-        ];
     }
     protected function sendDailyIntakeUpdate(int $chatId, array $lastFood, array $dailyTotals, ?array $normData): void
     {
